@@ -29,6 +29,7 @@ import androidx.recyclerview.widget.RecyclerView
 import cc.microblock.TGStickerProvider.*
 import cc.microblock.TGStickerProvider.databinding.ActivityMainBinding
 import cc.microblock.TGStickerProvider.utils.StickerConversionCache
+import cc.microblock.TGStickerProvider.utils.StickerFileIndex
 import cc.microblock.TGStickerProvider.ui.activity.base.BaseActivity
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.bumptech.glide.Glide
@@ -261,16 +262,22 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
                 }
 
                 val remoteFileList = File(remoteFolder).listFiles() ?: emptyArray()
+                val remoteNames = remoteFileList.map { it.name }.toSet()
+                val syncedIndex = StickerFileIndex(File(syncedFolder).listFiles() ?: emptyArray())
                 val conversionCache = StickerConversionCache(File(filesDir, "sticker-conversions"))
 
                 for ((index, remoteFile) in remoteFileList.withIndex()) {
                     val nameWithoutExt = remoteFile.name.substringBefore(".")
                     val id = nameWithoutExt.substringBefore("_")
 
-                    val existing = File(syncedFolder).listFiles()?.filter {
-                        it.name.substringBefore(".").substringBefore("_") == id
+                    val existing = syncedIndex.filesFor(id)
+                    // The exporter can briefly expose both variants while upgrading its cache.
+                    // Prefer high quality, irrespective of directory enumeration order.
+                    if (remoteFile.name == "${id}_low.webp" && "${id}_high.webp" in remoteNames &&
+                        File(remoteFolder, "${id}_high.webp").isFile) {
+                        act.runOnUiThread { pd.setMessage("正在同步 ${index + 1}/${remoteFileList.size}") }
+                        continue
                     }
-                        ?: emptyList()
 
                     when(remoteFile.extension) {
                         "webp"->{
@@ -308,11 +315,12 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
                                     }
                                 }
 
+                                syncedIndex.published(out)
                                 for (file in existing) {
-                                    if(file.extension == "webp")
-                                        file.delete()
-                                    if(file.extension == "png" && file.name != "${nameWithoutExt}.png")
-                                        file.delete()
+                                    if (file.extension == "webp" ||
+                                        (file.extension == "png" && file.name != "${nameWithoutExt}.png")) {
+                                        if (file.delete()) syncedIndex.deleted(file)
+                                    }
                                 }
                             } catch (e: Exception) {
                                 YLog.error("Error while converting webp to png", e)
@@ -356,6 +364,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
                                         java.nio.file.StandardCopyOption.REPLACE_EXISTING
                                     )
                                     conversionCache.record(remoteFile, sourceHash, outFile, recipe)
+                                    syncedIndex.published(outFile)
                                     YLog.info("FFmpegKit: ${session.command} finished successfully")
                                 }
                             } catch (e: Exception) {
