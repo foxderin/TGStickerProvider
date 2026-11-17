@@ -297,22 +297,41 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
                             }
                         }
                         "webm"->{
-                            // encode to gif
-                            val outPath = "${syncedFolder}/${nameWithoutExt}.gif"
-                            if (!File(outPath).exists()) {
-
-                                val session = FFmpegKit.execute(
-                                    if(act.useHighQualityGif)
-                                        "-i ${remoteFile.absolutePath} -lavfi split[v],palettegen,[v]paletteuse -f gif ${outPath}"
-                                    else
-                                        "-i ${remoteFile.absolutePath} -vf scale=320:-1 -r 10 -f gif ${outPath}"
-                                )
-                                if (session.returnCode.isValueSuccess) {
+                            // Publish only completed GIFs; failed conversions must remain retryable.
+                            val outFile = File(syncedFolder, "${nameWithoutExt}.gif")
+                            if (!outFile.isFile || outFile.length() == 0L) {
+                                var tempFile: File? = null
+                                try {
+                                    val tempOutput = File.createTempFile(".gif-", ".tmp", File(syncedFolder))
+                                    tempFile = tempOutput
+                                    val arguments = if (act.useHighQualityGif) {
+                                        arrayOf("-y", "-i", remoteFile.absolutePath, "-lavfi",
+                                            "split[v],palettegen,[v]paletteuse", "-f", "gif", tempOutput.absolutePath)
+                                    } else {
+                                        arrayOf("-y", "-i", remoteFile.absolutePath, "-vf",
+                                            "scale=320:-1", "-r", "10", "-f", "gif", tempOutput.absolutePath)
+                                    }
+                                    val session = FFmpegKit.executeWithArguments(arguments)
+                                    if (!session.returnCode.isValueSuccess) {
+                                        throw IllegalStateException(
+                                            "FFmpegKit failed with state ${session.state} and rc ${session.returnCode}"
+                                        )
+                                    }
+                                    check(tempOutput.isFile && tempOutput.length() > 0L) {
+                                        "FFmpegKit produced an empty GIF"
+                                    }
+                                    java.nio.file.Files.move(
+                                        tempOutput.toPath(), outFile.toPath(),
+                                        java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                                        java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                                    )
                                     YLog.info("FFmpegKit: ${session.command} finished successfully")
-                                } else {
-                                    YLog.error("FFmpegKit: ${session.command} failed with state ${session.state} and rc ${session.returnCode}")
-                                    failReasons += "$id: FFmpegKit: ${session.command} failed with state ${session.state} and rc ${session.returnCode}\n"
+                                } catch (e: Exception) {
+                                    YLog.error("Error while converting webm to gif", e)
+                                    failReasons += "$id: Error while converting webm to gif: ${e.message}\n"
                                     failCount++
+                                } finally {
+                                    tempFile?.delete()
                                 }
                             }
                         }
