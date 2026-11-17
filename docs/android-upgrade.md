@@ -48,3 +48,5 @@ Glide 升至 5.0.7；本项目只使用基础加载、错误回退和暂停/恢�
 - [KSP 发布](https://github.com/google/ksp/releases)
 - [Android edge-to-edge](https://developer.android.com/develop/ui/views/layout/edge-to-edge)
 - [16KB 页支持](https://developer.android.com/guide/practices/page-sizes)
+
+后续并发/视频依赖变更及其验证边界见 [parallel-conversion.md](parallel-conversion.md)。

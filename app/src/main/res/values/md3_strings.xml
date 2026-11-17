@@ -13,4 +13,8 @@
     <string name="stickers_total">Total</string>
     <string name="unsupported_sticker_format">Unsupported format</string>
     <string name="delete_sticker_pack">Delete</string>
+    <string name="source_quality">Source quality</string>
+    <string name="apng_experimental">APNG output (experimental)</string>
+    <string name="apng_compatibility_notice">Requires APNG support in the receiving app; otherwise only the first frame may appear. GIF is the default.</string>
+    <string name="third_party_licenses">Third-party licenses</string>
 </resources>

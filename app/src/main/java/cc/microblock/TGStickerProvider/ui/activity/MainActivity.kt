@@ -9,7 +9,6 @@ import androidx.core.content.ContextCompat
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.Color
-import android.graphics.ImageDecoder
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Build
@@ -30,10 +29,8 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import cc.microblock.TGStickerProvider.*
 import cc.microblock.TGStickerProvider.databinding.ActivityMainBinding
-import cc.microblock.TGStickerProvider.utils.StickerConversionCache
-import cc.microblock.TGStickerProvider.utils.StickerFileIndex
+import cc.microblock.TGStickerProvider.utils.*
 import cc.microblock.TGStickerProvider.ui.activity.base.BaseActivity
-import com.arthenica.ffmpegkit.FFmpegKit
 import com.bumptech.glide.Glide
 import cc.microblock.TGStickerProvider.ui.view.SyncProgressDialog
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -71,6 +68,7 @@ class RecyclerAdapterStickerList(private val act: MainActivity) :
         val totalAll: TextView = view.findViewById(R.id.totalAll)
         val syncBtn: Button = view.findViewById(R.id.syncBtn)
         val rmBtn: Button = view.findViewById(R.id.rmBtn)
+        val sourceQualityBtn: Button = view.findViewById(R.id.sourceQualityBtn)
         val imageView: ShapeableImageView = view.findViewById(R.id.imageView)
         val videoView: VideoView = view.findViewById(R.id.videoView)
         val videoCard: CardView = view.findViewById(R.id.videoCard)
@@ -134,6 +132,9 @@ class RecyclerAdapterStickerList(private val act: MainActivity) :
             }
         }
 
+        holder.sourceQualityBtn.text = if (act.sourceQuality(s.id) == SourceQuality.HIGH) "来源：优先高清" else "来源：优先低清"
+        holder.sourceQualityBtn.isVisible = s.type in setOf("unknown", "image/webp", "video/webm")
+        holder.sourceQualityBtn.setOnClickListener { act.chooseSourceQuality(s) }
         holder.syncBtn.setOnClickListener {
             act.syncStickerPack(s, {
                 act.runOnUiThread {
@@ -161,7 +162,7 @@ class RecyclerAdapterStickerList(private val act: MainActivity) :
                     pd.show()
                     pd.setCancelable(false)
                     Thread {
-                        action()
+                        BoundedStickerWork.withStorageLock { action() }
                         act.runOnUiThread {
                             pd.setCancelable(true)
                             pd.setMessage("正在更新列表")
@@ -250,156 +251,88 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
             Toast.LENGTH_LONG
         ).show()
 
-        updateStickerList()
+        thread { updateStickerList() }
     }
 
-    public fun syncStickerPack(info: StickerInfo, finished: () -> Unit, error: (Int, String) -> Unit) {
-        val act = this
-        val s = info
-        val highQualityGif = useHighQualityGif
-        act.runOnUiThread {
-            val pd = SyncProgressDialog(act).apply {
-                setMessage("正在同步")
-                show()
+    fun syncStickerPack(info: StickerInfo, finished: () -> Unit, error: (Int, String) -> Unit) {
+        val options = StickerSyncOptions(sourceQuality(info.id),
+            if (useApng) AnimationFormat.APNG else AnimationFormat.GIF, useHighQualityGif)
+        runOnUiThread {
+            val progress = SyncProgressDialog(this).apply {
+                setMessage("正在等待同步")
                 setCancelable(false)
+                show()
             }
-            var failCount = 0
-            var failReasons = ""
-            thread(true) {
-                val remoteFolder = "$destDataPath/tgSync_${s.id}"
-                val syncedFolder = "$realDataPath/tgSync_${s.id}"
-                File(syncedFolder).mkdirs()
-
-                if (!File(nomediaPath2).exists()) {
-                    File(nomediaPath2).createNewFile()
-                }
-
-                val remoteFileList = File(remoteFolder).listFiles() ?: emptyArray()
-                val remoteNames = remoteFileList.map { it.name }.toSet()
-                val syncedIndex = StickerFileIndex(File(syncedFolder).listFiles() ?: emptyArray())
-                val conversionCache = StickerConversionCache(File(filesDir, "sticker-conversions"))
-
-                for ((index, remoteFile) in remoteFileList.withIndex()) {
-                    val nameWithoutExt = remoteFile.name.substringBefore(".")
-                    val id = nameWithoutExt.substringBefore("_")
-
-                    val existing = syncedIndex.filesFor(id)
-                    // The exporter can briefly expose both variants while upgrading its cache.
-                    // Prefer high quality, irrespective of directory enumeration order.
-                    if (remoteFile.name == "${id}_low.webp" && "${id}_high.webp" in remoteNames &&
-                        File(remoteFolder, "${id}_high.webp").isFile) {
-                        act.runOnUiThread { pd.setMessage("正在同步 ${index + 1}/${remoteFileList.size}") }
-                        continue
+            thread {
+                val failures = (try {
+                    StickerSynchronizer(applicationContext).synchronize(
+                        File("$destDataPath/tgSync_${info.id}"), File("$realDataPath/tgSync_${info.id}"),
+                        File(stickerDataPath, info.hash), options
+                    ) { done, total -> progress.setMessage("正在同步 $done/$total") }
+                } catch (exception: Exception) {
+                    YLog.error("Error while synchronizing ${info.name}", exception)
+                    listOf(exception.message ?: "同步失败")
+                }).toMutableList()
+                try {
+                    BoundedStickerWork.withStorageLock {
+                        File(nomediaPath2).apply { parentFile?.mkdirs(); if (!exists()) createNewFile() }
+                        updateStickerList()
                     }
-
-                    when(remoteFile.extension) {
-                        "webp"->{
-                            try {
-                                val outPathPng = "${syncedFolder}/${nameWithoutExt}.png"
-                                val out = File(outPathPng)
-                                val sourceHash = conversionCache.fingerprint(remoteFile)
-                                val recipe = "png-v1-android-${Build.VERSION.SDK_INT}-${Build.FINGERPRINT}"
-                                if (!conversionCache.isFresh(remoteFile, sourceHash, out, recipe)) {
-                                    val tempOutput = File.createTempFile(".png-", ".tmp", File(syncedFolder))
-                                    try {
-                                        val decoder = ImageDecoder.createSource(remoteFile)
-                                        val bitmap = ImageDecoder.decodeBitmap(decoder)
-                                        try {
-                                            tempOutput.outputStream().buffered().use {
-                                                check(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)) {
-                                                    "PNG encoding failed"
-                                                }
-                                            }
-                                        } finally {
-                                            bitmap.recycle()
-                                        }
-                                        check(tempOutput.length() > 0L) { "PNG encoding produced an empty file" }
-                                        check(conversionCache.fingerprint(remoteFile) == sourceHash) {
-                                            "Source changed during conversion; retry synchronization"
-                                        }
-                                        java.nio.file.Files.move(
-                                            tempOutput.toPath(), out.toPath(),
-                                            java.nio.file.StandardCopyOption.ATOMIC_MOVE,
-                                            java.nio.file.StandardCopyOption.REPLACE_EXISTING
-                                        )
-                                        conversionCache.record(remoteFile, sourceHash, out, recipe)
-                                    } finally {
-                                        tempOutput.delete()
-                                    }
-                                }
-
-                                syncedIndex.published(out)
-                                for (file in existing) {
-                                    if (file.extension == "webp" ||
-                                        (file.extension == "png" && file.name != "${nameWithoutExt}.png")) {
-                                        if (file.delete()) syncedIndex.deleted(file)
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                YLog.error("Error while converting webp to png", e)
-                                failReasons += "$id: Error while converting webp to png: ${e.message}\n"
-                                failCount++
-                            }
-                        }
-                        "webm"->{
-                            // Publish only completed GIFs; failed conversions must remain retryable.
-                            val outFile = File(syncedFolder, "${nameWithoutExt}.gif")
-                            var tempFile: File? = null
-                            try {
-                                val sourceHash = conversionCache.fingerprint(remoteFile)
-                                val recipe = "gif-v1-ffmpeg-kit-min-6.0.1-" +
-                                    if (highQualityGif) "palette" else "width320-fps10"
-                                if (!conversionCache.isFresh(remoteFile, sourceHash, outFile, recipe)) {
-                                    val tempOutput = File.createTempFile(".gif-", ".tmp", File(syncedFolder))
-                                    tempFile = tempOutput
-                                    val arguments = if (highQualityGif) {
-                                        arrayOf("-y", "-i", remoteFile.absolutePath, "-lavfi",
-                                            "split[v],palettegen,[v]paletteuse", "-f", "gif", tempOutput.absolutePath)
-                                    } else {
-                                        arrayOf("-y", "-i", remoteFile.absolutePath, "-vf",
-                                            "scale=320:-1", "-r", "10", "-f", "gif", tempOutput.absolutePath)
-                                    }
-                                    val session = FFmpegKit.executeWithArguments(arguments)
-                                    if (!session.returnCode.isValueSuccess) {
-                                        throw IllegalStateException(
-                                            "FFmpegKit failed with state ${session.state} and rc ${session.returnCode}"
-                                        )
-                                    }
-                                    check(tempOutput.isFile && tempOutput.length() > 0L) {
-                                        "FFmpegKit produced an empty GIF"
-                                    }
-                                    check(conversionCache.fingerprint(remoteFile) == sourceHash) {
-                                        "Source changed during conversion; retry synchronization"
-                                    }
-                                    java.nio.file.Files.move(
-                                        tempOutput.toPath(), outFile.toPath(),
-                                        java.nio.file.StandardCopyOption.ATOMIC_MOVE,
-                                        java.nio.file.StandardCopyOption.REPLACE_EXISTING
-                                    )
-                                    conversionCache.record(remoteFile, sourceHash, outFile, recipe)
-                                    syncedIndex.published(outFile)
-                                    YLog.info("FFmpegKit: ${session.command} finished successfully")
-                                }
-                            } catch (e: Exception) {
-                                YLog.error("Error while converting webm to gif", e)
-                                failReasons += "$id: Error while converting webm to gif: ${e.message}\n"
-                                failCount++
-                            } finally {
-                                tempFile?.delete()
-                            }
+                } catch (exception: Exception) {
+                    failures += "刷新列表失败：${exception.message}"
+                } finally {
+                    progress.dismiss()
+                    runOnUiThread {
+                        // Finish the active pack safely, but do not start more packs/show dialogs on a dead Activity.
+                        if (!isFinishing && !isDestroyed) {
+                            if (failures.isEmpty()) finished() else error(failures.size, failures.joinToString("\n"))
                         }
                     }
-
-                    act.runOnUiThread { pd.setMessage("正在同步 ${index}/${remoteFileList.size}") }
                 }
-                act.runOnUiThread { pd.setMessage("正在更新列表") }
-                act.updateStickerList()
-                act.runOnUiThread { pd.dismiss() }
+            }
+        }
+    }
 
-                if (failCount > 0) {
-                    error(failCount, failReasons)
-                } else {
-                    finished();
+    private val syncPreferences by lazy { getSharedPreferences("sync_options", MODE_PRIVATE) }
+    var useApng = false
+    fun sourceQuality(id: String) = if (syncPreferences.getBoolean("low_source_$id", false)) SourceQuality.LOW else SourceQuality.HIGH
+
+    fun chooseSourceQuality(info: StickerInfo) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("来源画质：${info.name}")
+            .setSingleChoiceItems(arrayOf("优先高清（缺少时用低清）", "优先低清（缺少时用高清）"),
+                if (sourceQuality(info.id) == SourceQuality.HIGH) 0 else 1) { dialog, which ->
+                syncPreferences.edit().putBoolean("low_source_${info.id}", which == 1).apply()
+                refreshFreshness()
+                onFilterChanged()
+                dialog.dismiss()
+            }.setNegativeButton("取消", null).show()
+    }
+
+    @Volatile private var freshnessGeneration = 0L
+    private var currentPacks = emptyMap<String, Boolean>()
+    private var batchSyncInProgress = false
+
+    private fun refreshFreshness(list: List<StickerInfo> = stickerList.value.orEmpty()) {
+        val generation = ++freshnessGeneration
+        currentPacks = emptyMap()
+        // Hash only when this filter is used; avoid rescanning every pack between batch items.
+        if (!requiresSyncOnly || batchSyncInProgress || list.isEmpty()) return
+        val options = list.associate { info -> info.id to StickerSyncOptions(sourceQuality(info.id),
+            if (useApng) AnimationFormat.APNG else AnimationFormat.GIF, useHighQualityGif) }
+        thread work@ {
+            val result = BoundedStickerWork.withStorageLock {
+                if (generation != freshnessGeneration) return@withStorageLock null
+                val sync = StickerSynchronizer(applicationContext)
+                list.associate { info -> info.id to runCatching {
+                    sync.isCurrent(File("$destDataPath/tgSync_${info.id}"), File("$realDataPath/tgSync_${info.id}"),
+                        File(stickerDataPath, info.hash), options.getValue(info.id))
+                }.getOrDefault(false) }
+            } ?: return@work
+            runOnUiThread {
+                if (generation == freshnessGeneration && !isDestroyed) {
+                    currentPacks = result
+                    onFilterChanged()
                 }
             }
         }
@@ -412,10 +345,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
     fun onFilterChanged(list: List<StickerInfo>? = stickerList.value) {
         if (list == null) return
         (binding.stickerManageView.adapter as RecyclerAdapterStickerList).stickerList = list.filter {
-            if (requiresSyncOnly
-                && it.syncedState.all >= it.remoteState.all
-                && it.syncedState.highQuality >= it.remoteState.highQuality
-            ) return@filter false
+            if (requiresSyncOnly && currentPacks[it.id] == true) return@filter false
 
             it.name.contains(filter, ignoreCase = true) || it.id.contains(filter, ignoreCase = true)
                     || it.type.contains(filter, ignoreCase = true)
@@ -444,10 +374,24 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
         }
         binding.requiresSyncOnlySwitch.setOnCheckedChangeListener { _, isChecked ->
             requiresSyncOnly = isChecked
+            refreshFreshness()
             onFilterChanged()
         }
+        useApng = syncPreferences.getBoolean("apng", false)
+        binding.apngSwitch.isChecked = useApng
+        binding.gifQualitySwitch.isEnabled = !useApng
+        binding.apngSwitch.setOnCheckedChangeListener { _, checked ->
+            useApng = checked
+            syncPreferences.edit().putBoolean("apng", checked).apply()
+            binding.gifQualitySwitch.isEnabled = !checked
+            refreshFreshness()
+            onFilterChanged()
+        }
+        binding.licensesBtn.setOnClickListener { showLicenses() }
         binding.gifQualitySwitch.setOnCheckedChangeListener { _, isChecked ->
             useHighQualityGif = isChecked
+            refreshFreshness()
+            onFilterChanged()
         }
         binding.resetBtn.setOnClickListener {
             MaterialAlertDialogBuilder(this)
@@ -461,7 +405,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
                         setCancelable(false)
                     }
                     thread(true) {
-                        File(exposedPath).deleteRecursively()
+                        BoundedStickerWork.withStorageLock { File(exposedPath).deleteRecursively() }
                         this.stickerList.postValue(listOf())
                         pd.dismiss()
                     }
@@ -476,6 +420,8 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
                     Toast.makeText(this, "表情包为空", Toast.LENGTH_SHORT).show()
                     return@runOnUiThread
                 }
+                batchSyncInProgress = true
+                refreshFreshness()
                 val pd = SyncProgressDialog(this).apply {
                     setMessage("正在同步")
                     show()
@@ -490,6 +436,9 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
                         if (index >= syncQueue.size) {
                             runOnUiThread {
                                 pd.dismiss()
+                                batchSyncInProgress = false
+                                refreshFreshness()
+                                onFilterChanged()
                                 if (failCount > 0) {
                                     MaterialAlertDialogBuilder(this)
                                         .setTitle("有 $failCount 个表情同步失败")
@@ -564,9 +513,20 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
 
         stickerList.observe(this) { list ->
             runOnUiThread {
+                refreshFreshness(list)
                 onFilterChanged(list)
             }
         }
+    }
+
+    private fun showLicenses() {
+        val entries = assets.list("licenses").orEmpty().sorted()
+        MaterialAlertDialogBuilder(this).setTitle("第三方组件许可")
+            .setItems(entries.toTypedArray()) { _, which ->
+                val text = assets.open("licenses/${entries[which]}").bufferedReader().use { it.readText() }
+                MaterialAlertDialogBuilder(this).setTitle(entries[which]).setMessage(text)
+                    .setPositiveButton("关闭", null).show()
+            }.setNegativeButton("关闭", null).show()
     }
 
     override fun onResume() {
@@ -607,7 +567,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
 
         val stickerList = mutableListOf<StickerInfo>()
 
-        for (file in File(stickerDataPath).listFiles()!!) {
+        for (file in File(stickerDataPath).listFiles().orEmpty()) {
             try {
                 val hash = file.name
                 if (!file.name.endsWith(".stickerData.txt.jpg")) continue
@@ -633,7 +593,9 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
                     remoteState.all++
                 }
 
-                File("$realDataPath/tgSync_${id}").listFiles()?.forEach {
+                File("$realDataPath/tgSync_${id}").listFiles()?.filter {
+                    it.isFile && it.extension.lowercase() in setOf("png", "gif", "webp")
+                }?.forEach {
                     if (it.name.contains("_low.")) {
                         syncedState.lowQuality++
                     } else if (it.name.contains("_high.")) {

@@ -237,6 +237,26 @@
                         android:text="@string/high_quality_gif"
                         android:textAppearance="@style/TextAppearance.Material3.BodyLarge" />
 
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/apngSwitch"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:minHeight="52dp"
+                        android:text="@string/apng_experimental" />
+                    <com.google.android.material.textview.MaterialTextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/apng_compatibility_notice"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/licensesBtn"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minHeight="48dp"
+                        android:text="@string/third_party_licenses" />
+
                     <com.google.android.material.textview.MaterialTextView
                         android:id="@+id/textView"
                         android:layout_width="match_parent"
