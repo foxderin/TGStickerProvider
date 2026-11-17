@@ -264,7 +264,9 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
                     val nameWithoutExt = remoteFile.name.substringBefore(".")
                     val id = nameWithoutExt.substringBefore("_")
 
-                    val existing = File(syncedFolder).listFiles()?.filter { it.name.startsWith(id) }
+                    val existing = File(syncedFolder).listFiles()?.filter {
+                        it.name.substringBefore(".").substringBefore("_") == id
+                    }
                         ?: emptyList()
 
                     when(remoteFile.extension) {
