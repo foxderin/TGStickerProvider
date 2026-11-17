@@ -32,7 +32,7 @@ public class TLRPC {
                     result = new TL_fileEncryptedLocation();
                     break;
             }
-            if (result == null && exception) {
+            if (result == null) {
                 throw new RuntimeException(String.format("can't parse magic %x in FileLocation", constructor));
             }
             if (result != null) {
@@ -196,7 +196,7 @@ public class TLRPC {
                     result = new TL_photoSize();
                     break;
             }
-            if (result == null && exception) {
+            if (result == null) {
                 throw new RuntimeException(String.format("can't parse magic %x in PhotoSize", constructor));
             }
             if (result != null) {
@@ -275,7 +275,7 @@ public class TLRPC {
                     result = new TL_stickerSet();
                     break;
             }
-            if (result == null && exception) {
+            if (result == null) {
                 throw new RuntimeException(String.format("can't parse magic %x in StickerSet", constructor));
             }
             if (result != null) {
@@ -307,12 +307,9 @@ public class TLRPC {
             if ((flags & 16) != 0) {
                 int magic = stream.readInt32(exception);
                 if (magic != 0x1cb5c415) {
-                    if (exception) {
-                        throw new RuntimeException(String.format("wrong Vector magic, got %x", magic));
-                    }
-                    return;
+                    throw new RuntimeException(String.format("wrong Vector magic, got %x", magic));
                 }
-                int count = stream.readInt32(exception);
+                int count = readVectorCount(stream, exception, 4);
                 for (int a = 0; a < count; a++) {
                     PhotoSize object = PhotoSize.TLdeserialize(0, 0, id, stream, stream.readInt32(exception), exception);
                     if (object == null) {
@@ -411,12 +408,9 @@ public class TLRPC {
             if (hasFlag(flags, FLAG_4)) {
                 int magic = stream.readInt32(exception);
                 if (magic != 0x1cb5c415) {
-                    if (exception) {
-                        throw new RuntimeException(String.format("wrong Vector magic, got %x", magic));
-                    }
-                    return;
+                    throw new RuntimeException(String.format("wrong Vector magic, got %x", magic));
                 }
-                int count = stream.readInt32(exception);
+                int count = readVectorCount(stream, exception, 4);
                 for (int a = 0; a < count; a++) {
                     PhotoSize object = PhotoSize.TLdeserialize(0, 0, id, stream, stream.readInt32(exception), exception);
                     if (object == null) {
@@ -570,12 +564,9 @@ public class TLRPC {
             if (hasFlag(flags, FLAG_4)) {
                 int magic = stream.readInt32(exception);
                 if (magic != 0x1cb5c415) {
-                    if (exception) {
-                        throw new RuntimeException(String.format("wrong Vector magic, got %x", magic));
-                    }
-                    return;
+                    throw new RuntimeException(String.format("wrong Vector magic, got %x", magic));
                 }
-                int count = stream.readInt32(exception);
+                int count = readVectorCount(stream, exception, 4);
                 for (int a = 0; a < count; a++) {
                     PhotoSize object = PhotoSize.TLdeserialize(0, 0, 0, stream, stream.readInt32(exception), exception);
                     if (object == null) {
@@ -709,11 +700,7 @@ public class TLRPC {
 
         public static TL_stickerPack TLdeserialize(AbstractSerializedData stream, int constructor, boolean exception) {
             if (TL_stickerPack.constructor != constructor) {
-                if (exception) {
-                    throw new RuntimeException(String.format("can't parse magic %x in TL_stickerPack", constructor));
-                } else {
-                    return null;
-                }
+                throw new RuntimeException(String.format("can't parse magic %x in TL_stickerPack", constructor));
             }
             TL_stickerPack result = new TL_stickerPack();
             result.readParams(stream, exception);
@@ -724,12 +711,9 @@ public class TLRPC {
             emoticon = stream.readString(exception);
             int magic = stream.readInt32(exception);
             if (magic != 0x1cb5c415) {
-                if (exception) {
-                    throw new RuntimeException(String.format("wrong Vector magic, got %x", magic));
-                }
-                return;
+                throw new RuntimeException(String.format("wrong Vector magic, got %x", magic));
             }
-            int count = stream.readInt32(exception);
+            int count = readVectorCount(stream, exception, 4);
             for (int a = 0; a < count; a++) {
                 documents.add(stream.readInt64(exception));
             }
@@ -754,11 +738,7 @@ public class TLRPC {
 
         public static TL_stickerKeyword TLdeserialize(AbstractSerializedData stream, int constructor, boolean exception) {
             if (TL_stickerKeyword.constructor != constructor) {
-                if (exception) {
-                    throw new RuntimeException(String.format("can't parse magic %x in TL_stickerKeyword", constructor));
-                } else {
-                    return null;
-                }
+                throw new RuntimeException(String.format("can't parse magic %x in TL_stickerKeyword", constructor));
             }
             TL_stickerKeyword result = new TL_stickerKeyword();
             result.readParams(stream, exception);
@@ -769,12 +749,9 @@ public class TLRPC {
             document_id = stream.readInt64(exception);
             int magic = stream.readInt32(exception);
             if (magic != 0x1cb5c415) {
-                if (exception) {
-                    throw new RuntimeException(String.format("wrong Vector magic, got %x", magic));
-                }
-                return;
+                throw new RuntimeException(String.format("wrong Vector magic, got %x", magic));
             }
-            int count = stream.readInt32(exception);
+            int count = readVectorCount(stream, exception, 4);
             for (int a = 0; a < count; a++) {
                 keyword.add(stream.readString(exception));
             }
@@ -857,7 +834,7 @@ public class TLRPC {
                     result = new TL_inputStickerSetEmojiDefaultTopicIcons();
                     break;
             }
-            if (result == null && exception) {
+            if (result == null) {
                 throw new RuntimeException(String.format("can't parse magic %x in InputStickerSet", constructor));
             }
             if (result != null) {
@@ -965,11 +942,7 @@ public class TLRPC {
 
         public static TL_maskCoords TLdeserialize(AbstractSerializedData stream, int constructor, boolean exception) {
             if (TL_maskCoords.constructor != constructor) {
-                if (exception) {
-                    throw new RuntimeException(String.format("can't parse magic %x in TL_maskCoords", constructor));
-                } else {
-                    return null;
-                }
+                throw new RuntimeException(String.format("can't parse magic %x in TL_maskCoords", constructor));
             }
             TL_maskCoords result = new TL_maskCoords();
             result.readParams(stream, exception);
@@ -1292,13 +1265,74 @@ public class TLRPC {
                     result = new TL_documentAttributeCustomEmoji();
                     break;
             }
-            if (result == null && exception) {
+            if (result == null) {
                 throw new RuntimeException(String.format("can't parse magic %x in DocumentAttribute", constructor));
             }
             if (result != null) {
                 result.readParams(stream, exception);
             }
             return result;
+        }
+    }
+
+    // Current official VideoSize constructors. Unknown variants must fail at
+    // the enclosing DB row, never be skipped without consuming their payload.
+    public static class VideoSize extends TLObject {
+        public int constructor, flags, w, h, size;
+        public String type;
+        public double video_start_ts;
+        public long emoji_id, sticker_id;
+        public InputStickerSet stickerset;
+        public ArrayList<Integer> background_colors = new ArrayList<>();
+
+        public static VideoSize TLdeserialize(AbstractSerializedData stream, int constructor, boolean exception) {
+            VideoSize result = new VideoSize();
+            result.constructor = constructor;
+            switch (constructor) {
+                case 0xde33b094:
+                    result.flags = stream.readInt32(exception);
+                    result.type = stream.readString(exception);
+                    result.w = stream.readInt32(exception);
+                    result.h = stream.readInt32(exception);
+                    result.size = stream.readInt32(exception);
+                    if ((result.flags & 1) != 0) result.video_start_ts = stream.readDouble(exception);
+                    break;
+                case 0xf85c413c:
+                    result.emoji_id = stream.readInt64(exception);
+                    result.background_colors = readColors(stream, exception);
+                    break;
+                case 0x0da082fe:
+                    result.stickerset = InputStickerSet.TLdeserialize(stream, stream.readInt32(exception), exception);
+                    result.sticker_id = stream.readInt64(exception);
+                    result.background_colors = readColors(stream, exception);
+                    break;
+                default: throw new IllegalArgumentException(String.format("Unsupported VideoSize %x", constructor));
+            }
+            return result;
+        }
+
+        private static ArrayList<Integer> readColors(AbstractSerializedData stream, boolean exception) {
+            if (stream.readInt32(exception) != 0x1cb5c415) throw new IllegalArgumentException("Invalid color vector");
+            int count = readVectorCount(stream, exception, 4);
+            ArrayList<Integer> colors = new ArrayList<>(count);
+            for (int i = 0; i < count; i++) colors.add(stream.readInt32(exception));
+            return colors;
+        }
+
+        public void serializeToStream(AbstractSerializedData stream) {
+            stream.writeInt32(constructor);
+            switch (constructor) {
+                case 0xde33b094:
+                    stream.writeInt32(flags); stream.writeString(type);
+                    stream.writeInt32(w); stream.writeInt32(h); stream.writeInt32(size);
+                    if ((flags & 1) != 0) stream.writeDouble(video_start_ts);
+                    return;
+                case 0xf85c413c: stream.writeInt64(emoji_id); break;
+                case 0x0da082fe: stickerset.serializeToStream(stream); stream.writeInt64(sticker_id); break;
+                default: throw new IllegalArgumentException("Unsupported VideoSize");
+            }
+            stream.writeInt32(0x1cb5c415); stream.writeInt32(background_colors.size());
+            for (int color : background_colors) stream.writeInt32(color);
         }
     }
 
@@ -1316,12 +1350,9 @@ public class TLRPC {
             if (hasFlag(flags, FLAG_0)) {
                 int magic = stream.readInt32(exception);
                 if (magic != 0x1cb5c415) {
-                    if (exception) {
-                        throw new RuntimeException(String.format("wrong Vector magic, got %x", magic));
-                    }
-                    return;
+                    throw new RuntimeException(String.format("wrong Vector magic, got %x", magic));
                 }
-                int count = stream.readInt32(exception);
+                int count = readVectorCount(stream, exception, 4);
                 for (int a = 0; a < count; a++) {
                     PhotoSize object = PhotoSize.TLdeserialize(0, id, 0, stream, stream.readInt32(exception), exception);
                     if (object == null) {
@@ -1331,21 +1362,7 @@ public class TLRPC {
                 }
             }
             if (hasFlag(flags, FLAG_1)) {
-                int magic = stream.readInt32(exception);
-                if (magic != 0x1cb5c415) {
-                    if (exception) {
-                        throw new RuntimeException(String.format("wrong Vector magic, got %x", magic));
-                    }
-                    return;
-                }
-                int count = stream.readInt32(exception);
-                for (int a = 0; a < count; a++) {
-//                    VideoSize object = VideoSize.TLdeserialize(0, id, stream, stream.readInt32(exception), exception);
-//                    if (object == null) {
-//                        return;
-//                    }
-//                    video_thumbs.add(object);
-                }
+                video_thumbs = vectorDeserialize(stream, VideoSize::TLdeserialize, exception);
             }
             dc_id = stream.readInt32(exception);
             attributes = vectorDeserialize(stream, DocumentAttribute::TLdeserialize, exception);
@@ -1364,7 +1381,7 @@ public class TLRPC {
                 vectorSerialize(stream, thumbs);
             }
             if (hasFlag(flags, FLAG_1)) {
-//                vectorSerialize(stream, video_thumbs);
+                vectorSerialize(stream, video_thumbs);
             }
             stream.writeInt32(dc_id);
             vectorSerialize(stream, attributes);
@@ -1385,12 +1402,9 @@ public class TLRPC {
             dc_id = stream.readInt32(exception);
             int magic = stream.readInt32(exception);
             if (magic != 0x1cb5c415) {
-                if (exception) {
-                    throw new RuntimeException(String.format("wrong Vector magic, got %x", magic));
-                }
-                return;
+                throw new RuntimeException(String.format("wrong Vector magic, got %x", magic));
             }
-            int count = stream.readInt32(exception);
+            int count = readVectorCount(stream, exception, 4);
             for (int a = 0; a < count; a++) {
                 DocumentAttribute object = DocumentAttribute.TLdeserialize(stream, stream.readInt32(exception), exception);
                 if (object == null) {
@@ -1433,7 +1447,7 @@ public class TLRPC {
         public String mime_type;
         public long size;
         public ArrayList<PhotoSize> thumbs = new ArrayList<>();
-//        public ArrayList<VideoSize> video_thumbs = new ArrayList<>();
+        public ArrayList<VideoSize> video_thumbs = new ArrayList<>();
         public int version;
         public int dc_id;
         public byte[] key;
@@ -1476,7 +1490,7 @@ public class TLRPC {
 //                    result = new TL_document_layer53();
 //                    break;
             }
-            if (result == null && exception) {
+            if (result == null) {
                 throw new RuntimeException(String.format("can't parse magic %x in Document", constructor));
             }
             if (result != null) {
@@ -1507,7 +1521,7 @@ public class TLRPC {
                     result = new TL_messages_stickerSetNotModified();
                     break;
             }
-            if (result == null && exception) {
+            if (result == null) {
                 throw new RuntimeException(String.format("can't parse magic %x in messages_StickerSet", constructor));
             }
             if (result != null) {
@@ -1588,21 +1602,28 @@ public class TLRPC {
         return (flags & flag) != 0;
     }
 
+    public static final int MAX_VECTOR_ELEMENTS = 100000;
+
+    /** Count only, after the caller has checked any required vector magic. */
+    public static int readVectorCount(AbstractSerializedData stream, boolean exception, int minimumElementBytes) {
+        int count = stream.readInt32(exception);
+        if (minimumElementBytes < 1 || count < 0 || count > MAX_VECTOR_ELEMENTS || count > stream.remaining() / minimumElementBytes) {
+            throw new IllegalArgumentException("Invalid or oversized TL vector count: " + count);
+        }
+        return count;
+    }
+
     static <T extends TLObject> ArrayList<T> vectorDeserialize(AbstractSerializedData stream, TLDeserializer<T> read, boolean exception) {
         final int magic = stream.readInt32(exception);
         if (magic != 0x1cb5c415) {
-            if (exception) {
-                throw new RuntimeException(String.format("wrong Vector magic, got %x", magic));
-            }
-            return new ArrayList<>();
+            throw new RuntimeException(String.format("wrong Vector magic, got %x", magic));
         }
-        final int count = stream.readInt32(exception);
-        // TODO: Validate VectorWrongSize
+        final int count = readVectorCount(stream, exception, 4);
         final ArrayList<T> result = new ArrayList<>(count);
         for (int i = 0; i < count; ++i) {
             T deserialize = read.deserialize(stream, stream.readInt32(exception), exception);
-            if (deserialize != null)
-                result.add(deserialize);
+            if (deserialize == null) throw new IllegalArgumentException("Unsupported TL vector element");
+            result.add(deserialize);
         }
         return result;
     }

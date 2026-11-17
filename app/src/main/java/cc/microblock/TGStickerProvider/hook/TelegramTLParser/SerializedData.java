@@ -6,9 +6,15 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.nio.ByteBuffer;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 
 
 public class SerializedData extends AbstractSerializedData {
+    // Application safety limits, not a claim of supporting every Telegram DB size.
+    public static final int MAX_INPUT_BYTES = 64 * 1024 * 1024;
+    public static final int MAX_FIELD_BYTES = 0x00ffffff;
     protected boolean isOut = true;
     private ByteArrayOutputStream outbuf;
     private DataOutputStream out;
@@ -37,6 +43,7 @@ public class SerializedData extends AbstractSerializedData {
     }
 
     public SerializedData(byte[] data) {
+        if (data == null || data.length > MAX_INPUT_BYTES) throw new IllegalArgumentException("TL input exceeds limit");
         isOut = false;
         inbuf = new ByteArrayInputStream(data);
         in = new DataInputStream(inbuf);
@@ -79,14 +86,18 @@ public class SerializedData extends AbstractSerializedData {
     }
 
     public SerializedData(File file) throws Exception {
-        FileInputStream is = new FileInputStream(file);
-        byte[] data = new byte[(int) file.length()];
-        new DataInputStream(is).readFully(data);
-        is.close();
+        this(readFile(file));
+    }
 
-        isOut = false;
-        inbuf = new ByteArrayInputStream(data);
-        in = new DataInputStream(inbuf);
+    private static byte[] readFile(File file) throws Exception {
+        long size = file.length();
+        if (size < 0 || size > MAX_INPUT_BYTES) throw new IllegalArgumentException("TL file exceeds limit");
+        byte[] data = new byte[(int) size];
+        try (DataInputStream input = new DataInputStream(new FileInputStream(file))) {
+            input.readFully(data);
+            if (input.read() != -1) throw new IllegalArgumentException("TL file changed while reading");
+        }
+        return data;
     }
 
     public void writeInt32(int x) {
@@ -324,6 +335,8 @@ public class SerializedData extends AbstractSerializedData {
     }
 
     protected void set(byte[] newData) {
+        if (newData == null || newData.length > MAX_INPUT_BYTES) throw new IllegalArgumentException("TL input exceeds limit");
+        len = 0;
         isOut = false;
         inbuf = new ByteArrayInputStream(newData);
         in = new DataInputStream(inbuf);
@@ -333,230 +346,106 @@ public class SerializedData extends AbstractSerializedData {
         return outbuf.toByteArray();
     }
 
+    // This cache reader is deliberately strict even for exception=false: a
+    // truncated object has no safe recovery boundary. Callers discard the row.
+    private void requireAvailable(int count) {
+        if (count < 0 || inbuf == null || count > inbuf.available()) {
+            throw new IllegalArgumentException("Truncated or invalid TL field at byte " + len);
+        }
+    }
+
+    private int unsignedByte() {
+        requireAvailable(1);
+        len++;
+        return inbuf.read();
+    }
+
     public void skip(int count) {
-        if (count == 0) {
+        if (justCalc) {
+            if (count < 0 || len > Integer.MAX_VALUE - count) throw new IllegalArgumentException("Invalid skip");
+            len += count;
             return;
         }
-        if (!justCalc) {
-            if (in != null) {
-                try {
-                    in.skipBytes(count);
-                } catch (Exception e) {
-                    System.out.println(e);
-                }
-            }
-        } else {
-            len += count;
-        }
+        requireAvailable(count);
+        if (inbuf.skip(count) != count) throw new IllegalArgumentException("Truncated skip");
+        len += count;
     }
 
-    public int getPosition() {
-        return len;
-    }
+    public int getPosition() { return len; }
 
     public boolean readBool(boolean exception) {
-        int consructor = readInt32(exception);
-        if (consructor == 0x997275b5) {
-            return true;
-        } else if (consructor == 0xbc799737) {
-            return false;
-        }
-        if (exception) {
-            throw new RuntimeException("Not bool value!");
-        } else {
-            if (true) {
-                System.out.println("Not bool value!");
-            }
-        }
-        return false;
+        int constructor = readInt32(exception);
+        if (constructor == 0x997275b5) return true;
+        if (constructor == 0xbc799737) return false;
+        throw new IllegalArgumentException("Invalid TL boolean");
     }
 
-    public byte readByte(boolean exception) {
-        try {
-            byte result = in.readByte();
-            len += 1;
-            return result;
-        } catch (Exception e) {
-            if (exception) {
-                throw new RuntimeException("read byte error", e);
-            } else {
-                if (true) {
-                    System.out.println("read byte error");
-                    System.out.println(e);
-                }
-            }
-        }
-        return 0;
-    }
+    public byte readByte(boolean exception) { return (byte) unsignedByte(); }
 
-    public void readBytes(byte[] b, boolean exception) {
-        try {
-            in.read(b);
-            len += b.length;
-        } catch (Exception e) {
-            if (exception) {
-                throw new RuntimeException("read bytes error", e);
-            } else {
-                if (true) {
-                    System.out.println("read bytes error");
-                    System.out.println(e);
-                }
-            }
+    public void readBytes(byte[] bytes, boolean exception) {
+        if (bytes == null) throw new IllegalArgumentException("Null byte destination");
+        requireAvailable(bytes.length);
+        if (bytes.length != 0 && inbuf.read(bytes, 0, bytes.length) != bytes.length) {
+            throw new IllegalArgumentException("Truncated bytes");
         }
+        len += bytes.length;
     }
 
     public byte[] readData(int count, boolean exception) {
-        byte[] arr = new byte[count];
-        readBytes(arr, exception);
-        return arr;
+        if (count < 0 || count > MAX_FIELD_BYTES) throw new IllegalArgumentException("TL byte field exceeds limit");
+        requireAvailable(count);
+        byte[] bytes = new byte[count];
+        readBytes(bytes, exception);
+        return bytes;
     }
 
     public String readString(boolean exception) {
+        byte[] bytes = readByteArray(exception);
         try {
-            int sl = 1;
-            int l = in.read();
-            len++;
-            if (l >= 254) {
-                l = in.read() | (in.read() << 8) | (in.read() << 16);
-                len += 3;
-                sl = 4;
-            }
-            byte[] b = new byte[l];
-            in.read(b);
-            len++;
-            int i = sl;
-            while ((l + i) % 4 != 0) {
-                in.read();
-                len++;
-                i++;
-            }
-            return new String(b, "UTF-8");
-        } catch (Exception e) {
-            if (exception) {
-                throw new RuntimeException("read string error", e);
-            } else {
-                if (true) {
-                    System.out.println("read string error");
-                    System.out.println(e);
-                }
-            }
+            return StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString();
+        } catch (java.nio.charset.CharacterCodingException e) {
+            throw new IllegalArgumentException("Invalid TL UTF-8 string", e);
         }
-        return null;
     }
 
     public byte[] readByteArray(boolean exception) {
-        try {
-            int sl = 1;
-            int l = in.read();
-            len++;
-            if (l >= 254) {
-                l = in.read() | (in.read() << 8) | (in.read() << 16);
-                len += 3;
-                sl = 4;
-            }
-            byte[] b = new byte[l];
-            in.read(b);
-            len++;
-            int i = sl;
-            while ((l + i) % 4 != 0) {
-                in.read();
-                len++;
-                i++;
-            }
-            return b;
-        } catch (Exception e) {
-            if (exception) {
-                throw new RuntimeException("read byte array error", e);
-            } else {
-                if (true) {
-                    System.out.println("read byte array error");
-                    System.out.println(e);
-                }
-            }
+        int length = unsignedByte();
+        int header = 1;
+        if (length == 255) throw new IllegalArgumentException("Invalid TL length marker");
+        if (length == 254) {
+            requireAvailable(3);
+            length = unsignedByte() | (unsignedByte() << 8) | (unsignedByte() << 16);
+            header = 4;
         }
-        return null;
+        int padding = (4 - ((length + header) & 3)) & 3;
+        // Check the entire payload before allocation, including its alignment.
+        requireAvailable(length + padding);
+        byte[] bytes = readData(length, exception);
+        // Official TL specifies zero alignment bytes; reject malformed records.
+        for (int i = 0; i < padding; i++) {
+            if (unsignedByte() != 0) throw new IllegalArgumentException("Invalid TL padding");
+        }
+        return bytes;
     }
 
-    public double readDouble(boolean exception) {
-        try {
-            return Double.longBitsToDouble(readInt64(exception));
-        } catch (Exception e) {
-            if (exception) {
-                throw new RuntimeException("read double error", e);
-            } else {
-                if (true) {
-                    System.out.println("read double error");
-                    System.out.println(e);
-                }
-            }
-        }
-        return 0;
-    }
-
-    public float readFloat(boolean exception) {
-        try {
-            return Float.intBitsToFloat(readInt32(exception));
-        } catch (Exception e) {
-            if (exception) {
-                throw new RuntimeException("read float error", e);
-            } else {
-                if (true) {
-                    System.out.println("read float error");
-                    System.out.println(e);
-                }
-            }
-        }
-        return 0;
-    }
+    public double readDouble(boolean exception) { return Double.longBitsToDouble(readInt64(exception)); }
+    public float readFloat(boolean exception) { return Float.intBitsToFloat(readInt32(exception)); }
 
     public int readInt32(boolean exception) {
-        try {
-            int i = 0;
-            for (int j = 0; j < 4; j++) {
-                i |= (in.read() << (j * 8));
-                len++;
-            }
-            return i;
-        } catch (Exception e) {
-            if (exception) {
-                throw new RuntimeException("read int32 error", e);
-            } else {
-                if (true) {
-                    System.out.println("read int32 error");
-                    System.out.println(e);
-                }
-            }
-        }
-        return 0;
+        requireAvailable(4);
+        int value = 0;
+        for (int i = 0; i < 4; i++) value |= unsignedByte() << (8 * i);
+        return value;
     }
 
     public long readInt64(boolean exception) {
-        try {
-            long i = 0;
-            for (int j = 0; j < 8; j++) {
-                i |= ((long) in.read() << (j * 8));
-                len++;
-            }
-            return i;
-        } catch (Exception e) {
-            if (exception) {
-                throw new RuntimeException("read int64 error", e);
-            } else {
-                if (true) {
-                    System.out.println("read int64 error");
-                    System.out.println(e);
-                }
-            }
-        }
-        return 0;
+        requireAvailable(8);
+        long value = 0;
+        for (int i = 0; i < 8; i++) value |= (long) unsignedByte() << (8 * i);
+        return value;
     }
 
     @Override
-    public int remaining() {
-        try {
-            return in.available();
-        } catch (Exception e) {
-            return Integer.MAX_VALUE;
-        }
-    }
+    public int remaining() { return inbuf == null ? 0 : inbuf.available(); }
 }
