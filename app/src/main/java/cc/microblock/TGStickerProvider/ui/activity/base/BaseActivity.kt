@@ -1,65 +1,50 @@
-@file:Suppress("MemberVisibilityCanBePrivate", "UNCHECKED_CAST")
-
 package cc.microblock.TGStickerProvider.ui.activity.base
 
-import android.os.Build
+import android.graphics.Color
 import android.os.Bundle
+import android.view.LayoutInflater
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.res.ResourcesCompat
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.viewbinding.ViewBinding
-import com.highcapable.yukihookapi.hook.factory.current
-import com.highcapable.yukihookapi.hook.factory.method
-import com.highcapable.yukihookapi.hook.type.android.LayoutInflaterClass
-import cc.microblock.TGStickerProvider.R
 import cc.microblock.TGStickerProvider.utils.factory.isNotSystemInDarkMode
-import cc.microblock.TGStickerProvider.*
 
 abstract class BaseActivity<VB : ViewBinding> : AppCompatActivity() {
-
-    /**
-     * Get the binding layout object
-     *
-     * 获取绑定布局对象
-     */
     lateinit var binding: VB
+        private set
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = current().generic()?.argument()?.method {
-            name = "inflate"
-            param(LayoutInflaterClass)
-        }?.get()?.invoke<VB>(layoutInflater) ?: error("binding failed")
+        binding = inflateBinding(layoutInflater)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(binding.root)
-        /**
-         * Hide Activity title bar
-         * 隐藏系统的标题栏
-         */
-        supportActionBar?.hide()
-        /**
-         * Init immersive status bar
-         * 初始化沉浸状态栏
-         */
-        WindowCompat.getInsetsController(window, window.decorView).apply {
+        // Android 15+ enforces edge-to-edge for new targets. Also handle older supported devices.
+        val root = binding.root
+        val left = root.paddingLeft
+        val top = root.paddingTop
+        val right = root.paddingRight
+        val bottom = root.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or
+                WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
+            view.setPadding(left + safe.left, top + safe.top, right + safe.right, bottom + safe.bottom)
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
+        WindowCompat.getInsetsController(window, root).apply {
             isAppearanceLightStatusBars = isNotSystemInDarkMode
             isAppearanceLightNavigationBars = isNotSystemInDarkMode
         }
-        ResourcesCompat.getColor(resources, R.color.colorThemeBackground, null).also {
-            window?.statusBarColor = it
-            window?.navigationBarColor = it
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) window?.navigationBarDividerColor = it
+        @Suppress("DEPRECATION")
+        window.apply {
+            statusBarColor = Color.TRANSPARENT
+            navigationBarColor = Color.TRANSPARENT
+            navigationBarDividerColor = Color.TRANSPARENT
         }
-        /**
-         * Init children
-         * 装载子类
-         */
         onCreate()
     }
 
-    /**
-     * Callback [onCreate] method
-     *
-     * 回调 [onCreate] 方法
-     */
+    protected abstract fun inflateBinding(inflater: LayoutInflater): VB
     abstract fun onCreate()
 }

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="get_started">开始使用</string>
+    <string name="open_sticker_manager">管理表情包</string>
+    <string name="search_sticker_packs">搜索表情包</string>
+    <string name="sync_all_sticker_packs">同步所有表情包</string>
+    <string name="refresh_list_short">刷新列表</string>
+    <string name="clear_export_cache_short">清除导出缓存</string>
+    <string name="show_pending_only">只显示待同步表情包</string>
+    <string name="high_quality_gif">高清 GIF（较慢）</string>
+    <string name="stickers_synced">已同步</string>
+    <string name="stickers_exported">已导出</string>
+    <string name="stickers_total">包内总数</string>
+    <string name="unsupported_sticker_format">不支持的格式</string>
+    <string name="delete_sticker_pack">删除</string>
+</resources>

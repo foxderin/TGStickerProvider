@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="get_started">Get started</string>
+    <string name="open_sticker_manager">Manage stickers</string>
+    <string name="search_sticker_packs">Search sticker packs</string>
+    <string name="sync_all_sticker_packs">Sync all sticker packs</string>
+    <string name="refresh_list_short">Refresh list</string>
+    <string name="clear_export_cache_short">Clear export cache</string>
+    <string name="show_pending_only">Show pending packs only</string>
+    <string name="high_quality_gif">High-quality GIF (slower)</string>
+    <string name="stickers_synced">Synced</string>
+    <string name="stickers_exported">Exported</string>
+    <string name="stickers_total">Total</string>
+    <string name="unsupported_sticker_format">Unsupported format</string>
+    <string name="delete_sticker_pack">Delete</string>
+</resources>

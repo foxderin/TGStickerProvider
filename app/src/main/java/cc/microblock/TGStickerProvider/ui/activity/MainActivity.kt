@@ -2,9 +2,11 @@
 
 package cc.microblock.TGStickerProvider.ui.activity
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import android.annotation.SuppressLint
-import android.app.AlertDialog
-import android.app.ProgressDialog
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.ImageDecoder
@@ -33,8 +35,9 @@ import cc.microblock.TGStickerProvider.utils.StickerFileIndex
 import cc.microblock.TGStickerProvider.ui.activity.base.BaseActivity
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.bumptech.glide.Glide
+import cc.microblock.TGStickerProvider.ui.view.SyncProgressDialog
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.imageview.ShapeableImageView
-import com.google.android.material.textview.MaterialTextView
 import com.highcapable.yukihookapi.YukiHookAPI
 import com.highcapable.yukihookapi.hook.log.YLog
 import java.io.File
@@ -67,7 +70,7 @@ class RecyclerAdapterStickerList(private val act: MainActivity) :
         val exportedStatus: TextView = view.findViewById(R.id.exportedStatus)
         val totalAll: TextView = view.findViewById(R.id.totalAll)
         val syncBtn: Button = view.findViewById(R.id.syncBtn)
-        val rmBtn: MaterialTextView = view.findViewById(R.id.rmBtn)
+        val rmBtn: Button = view.findViewById(R.id.rmBtn)
         val imageView: ShapeableImageView = view.findViewById(R.id.imageView)
         val videoView: VideoView = view.findViewById(R.id.videoView)
         val videoCard: CardView = view.findViewById(R.id.videoCard)
@@ -138,7 +141,7 @@ class RecyclerAdapterStickerList(private val act: MainActivity) :
                 }
             }, { count, reasons ->
                 act.runOnUiThread {
-                    AlertDialog.Builder(act)
+                    MaterialAlertDialogBuilder(act)
                         .setTitle("有 $count 个表情同步失败")
                         .setMessage(reasons)
                         .setIcon(android.R.drawable.ic_dialog_alert)
@@ -148,12 +151,12 @@ class RecyclerAdapterStickerList(private val act: MainActivity) :
         }
 
         fun deleteDialog(title: String, message: String, icon: Int, action: () -> Unit) {
-            AlertDialog.Builder(act)
+            MaterialAlertDialogBuilder(act)
                 .setTitle(title)
                 .setMessage(message)
                 .setIcon(icon)
                 .setPositiveButton("删除") { _, _ ->
-                    val pd = ProgressDialog(act)
+                    val pd = SyncProgressDialog(act)
                     pd.setMessage("正在删除")
                     pd.show()
                     pd.setCancelable(false)
@@ -211,22 +214,32 @@ class RecyclerAdapterStickerList(private val act: MainActivity) :
 
 class MainActivity : BaseActivity<ActivityMainBinding>() {
 
+    override fun inflateBinding(inflater: LayoutInflater) = ActivityMainBinding.inflate(inflater)
+
+    private val storageSettings = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
+            onGainedPermission()
+        }
+    }
+    private val legacyStoragePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) onGainedPermission()
+    }
+
     private fun requestPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // 先判断有没有权限
             if (Environment.isExternalStorageManager()) {
                 onGainedPermission()
                 return
             }
-            Toast.makeText(
-                this,
-                "请授予插件完全文件访问权限，以同步表情包~",
-                Toast.LENGTH_LONG
-            ).show()
-            @Suppress("DEPRECATION")
-            startActivityForResult(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                data = Uri.parse("package:" + this@MainActivity.packageName)
-            }, 2339)
+            Toast.makeText(this, "请授予插件完全文件访问权限，以同步表情包~", Toast.LENGTH_LONG).show()
+            storageSettings.launch(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                data = Uri.parse("package:$packageName")
+            })
+        } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+            PackageManager.PERMISSION_GRANTED) {
+            onGainedPermission()
+        } else {
+            legacyStoragePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         }
     }
 
@@ -245,7 +258,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
         val s = info
         val highQualityGif = useHighQualityGif
         act.runOnUiThread {
-            val pd = ProgressDialog(act).apply {
+            val pd = SyncProgressDialog(act).apply {
                 setMessage("正在同步")
                 show()
                 setCancelable(false)
@@ -392,24 +405,6 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
         }
     }
 
-    @Deprecated("Deprecated in Java")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == 2339) {
-            if (Environment.isExternalStorageManager()) {
-                onGainedPermission()
-                return
-            }
-            Toast.makeText(
-                this,
-                "请授予插件完全文件访问权限，以同步表情包~",
-                Toast.LENGTH_LONG
-            ).show()
-            requestPermission()
-        }
-
-    }
-
     var filter = ""
     var requiresSyncOnly = false
     var useHighQualityGif = false
@@ -434,6 +429,16 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
         requestPermission()
         binding.mainTextVersion.text = getString(R.string.module_version, BuildConfig.VERSION_NAME)
         binding.button2.setOnClickListener {
+            val hasStorageAccess = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Environment.isExternalStorageManager()
+            } else {
+                ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+                    PackageManager.PERMISSION_GRANTED
+            }
+            if (!hasStorageAccess) {
+                requestPermission()
+                return@setOnClickListener
+            }
             binding.tips.visibility = View.GONE
             binding.manage.visibility = View.VISIBLE
         }
@@ -445,12 +450,12 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
             useHighQualityGif = isChecked
         }
         binding.resetBtn.setOnClickListener {
-            AlertDialog.Builder(this)
+            MaterialAlertDialogBuilder(this)
                 .setTitle("清除已同步的表情包集缓存")
                 .setMessage("你将清除导出表情包集的缓存，这不会影响已同步的表情包，是否继续？")
                 .setIcon(android.R.drawable.ic_dialog_alert)
                 .setPositiveButton("删除") { _, _ ->
-                    val pd = ProgressDialog(this).apply {
+                    val pd = SyncProgressDialog(this).apply {
                         setMessage("正在清除")
                         show()
                         setCancelable(false)
@@ -471,7 +476,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
                     Toast.makeText(this, "表情包为空", Toast.LENGTH_SHORT).show()
                     return@runOnUiThread
                 }
-                val pd = ProgressDialog(this).apply {
+                val pd = SyncProgressDialog(this).apply {
                     setMessage("正在同步")
                     show()
                     setCancelable(false)
@@ -486,7 +491,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
                             runOnUiThread {
                                 pd.dismiss()
                                 if (failCount > 0) {
-                                    AlertDialog.Builder(this)
+                                    MaterialAlertDialogBuilder(this)
                                         .setTitle("有 $failCount 个表情同步失败")
                                         .setMessage(failReasons)
                                         .setIcon(android.R.drawable.ic_dialog_alert)
@@ -513,7 +518,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
         }
 
         binding.refreshBtn.setOnClickListener {
-            val pd = ProgressDialog(this).apply {
+            val pd = SyncProgressDialog(this).apply {
                 setMessage("正在更新")
                 show()
                 setCancelable(false)
@@ -671,10 +676,6 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
      * 刷新模块状态
      */
     private fun refreshModuleStatus() {
-        binding.mainLinStatus.setBackgroundResource(
-            if (YukiHookAPI.Status.isModuleActive) R.drawable.bg_green_round
-            else R.drawable.bg_dark_round
-        )
         binding.mainImgStatus.setImageResource(
             if (YukiHookAPI.Status.isModuleActive) R.mipmap.ic_success
             else R.mipmap.ic_warn

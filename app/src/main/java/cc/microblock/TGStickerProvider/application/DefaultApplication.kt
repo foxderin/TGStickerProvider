@@ -1,6 +1,7 @@
 package cc.microblock.TGStickerProvider.application
 
 import androidx.appcompat.app.AppCompatDelegate
+import com.google.android.material.color.DynamicColors
 import com.highcapable.yukihookapi.hook.xposed.application.ModuleApplication
 
 class DefaultApplication : ModuleApplication() {
@@ -12,6 +13,6 @@ class DefaultApplication : ModuleApplication() {
          * Follow system night mode
          */
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
-        // Your code here.
+        DynamicColors.applyToActivitiesIfAvailable(this)
     }
 }
