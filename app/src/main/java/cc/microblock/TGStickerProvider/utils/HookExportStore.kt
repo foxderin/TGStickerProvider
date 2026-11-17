@@ -5,6 +5,9 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.file.Files
+import java.nio.file.FileVisitResult
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
 import java.nio.file.StandardCopyOption
 import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.FileTime
@@ -101,6 +104,39 @@ object HookExportStore {
         } finally {
             temporary.delete()
         }
+    }
+
+    /**
+     * Clears directory contents without unlinking the active lock inode or its ancestor path.
+     * The directory itself is retained. Symlinks are rejected, never followed. Cooperating writers
+     * must hold this same export lock; this is not a sandbox against hostile filesystem races.
+     * A failure can leave a partially cleared cache, but never deliberately removes the lock path.
+     */
+    fun clearDirectoryPreservingLock(directory: File) {
+        requireLock()
+        if (Files.isSymbolicLink(directory.toPath())) {
+            throw IOException("Refusing to clear a symlink directory: $directory")
+        }
+        if (!directory.exists()) return
+        check(directory.isDirectory) { "Cache path is not a directory: $directory" }
+        val root = directory.canonicalFile.toPath()
+        val lockPath = File(checkNotNull(heldRoot.get()), LOCK_NAME).toPath()
+        // No FOLLOW_LINKS option: linked directories are reported to visitFile, which rejects them.
+        Files.walkFileTree(root, object : SimpleFileVisitor<Path>() {
+            override fun visitFile(file: Path, attributes: BasicFileAttributes): FileVisitResult {
+                if (attributes.isSymbolicLink || Files.isSymbolicLink(file)) {
+                    throw IOException("Refusing to traverse cache symlink: $file")
+                }
+                if (file != lockPath) Files.delete(file)
+                return FileVisitResult.CONTINUE
+            }
+
+            override fun postVisitDirectory(directory: Path, exception: IOException?): FileVisitResult {
+                if (exception != null) throw exception
+                if (directory != root && !lockPath.startsWith(directory)) Files.delete(directory)
+                return FileVisitResult.CONTINUE
+            }
+        })
     }
 
     private data class Stamp(val size: Long, val modified: FileTime, val key: Any?)
