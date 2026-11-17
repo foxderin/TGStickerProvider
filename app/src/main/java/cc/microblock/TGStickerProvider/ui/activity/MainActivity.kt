@@ -407,7 +407,8 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
 
         binding.syncAllBtn.setOnClickListener {
             runOnUiThread {
-                if (stickerList.value.isNullOrEmpty()) {
+                val syncQueue = stickerList.value?.toList().orEmpty()
+                if (syncQueue.isEmpty()) {
                     Toast.makeText(this, "表情包为空", Toast.LENGTH_SHORT).show()
                     return@runOnUiThread
                 }
@@ -422,34 +423,28 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
                     var failReasons = ""
 
                     fun syncIndex(index: Int) {
-                        val s = stickerList.value?.get(index) ?: return
-                        var index = index
-                        syncStickerPack(s, {
-                            index++
-                            if (index < (stickerList.value?.size ?: 0)) {
-                                syncIndex(index)
-                            } else {
-                                runOnUiThread {
-                                    pd.dismiss()
-                                    Toast.makeText(this, "同步完成", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        }, { count, reasons ->
-                            failCount += count
-                            failReasons += reasons
-                            index++
-                            if (index < (stickerList.value?.size ?: 0)) {
-                                syncIndex(index)
-                            } else {
-                                runOnUiThread {
-                                    pd.dismiss()
+                        if (index >= syncQueue.size) {
+                            runOnUiThread {
+                                pd.dismiss()
+                                if (failCount > 0) {
                                     AlertDialog.Builder(this)
                                         .setTitle("有 $failCount 个表情同步失败")
                                         .setMessage(failReasons)
                                         .setIcon(android.R.drawable.ic_dialog_alert)
                                         .setPositiveButton("确定", null).show()
+                                } else {
+                                    Toast.makeText(this, "同步完成", Toast.LENGTH_SHORT).show()
                                 }
                             }
+                            return
+                        }
+
+                        syncStickerPack(syncQueue[index], {
+                            syncIndex(index + 1)
+                        }, { count, reasons ->
+                            failCount += count
+                            failReasons += reasons
+                            syncIndex(index + 1)
                         })
                     }
                     syncIndex(0);
