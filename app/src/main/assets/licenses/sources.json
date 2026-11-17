@@ -294,6 +294,13 @@
       "upstream_sha256": "7637386b5f81e8a719ca336233149005e5fa28b5e6054ea7b67de49355b0ad40",
       "asset_sha256": "7637386b5f81e8a719ca336233149005e5fa28b5e6054ea7b67de49355b0ad40",
       "notice_header_only": false
+    },
+    {
+      "asset": "FreeReflection-3.2.2-LICENSE.txt",
+      "source": "https://raw.githubusercontent.com/tiann/FreeReflection/550e36e464539fe59fcc6e49c8f54bfbf376dbfe/LICENSE",
+      "upstream_sha256": "b3ded9b9e65344118b8ea7ffb15006e2919de62dc461c9f10f6bbfc73032b579",
+      "asset_sha256": "b3ded9b9e65344118b8ea7ffb15006e2919de62dc461c9f10f6bbfc73032b579",
+      "notice_header_only": false
     }
   ]
 }

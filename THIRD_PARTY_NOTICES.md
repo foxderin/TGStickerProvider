@@ -40,3 +40,7 @@ The libvpx/APNG, source-order and source-quality ideas were informed by ACaiCat'
 https://github.com/ACaiCat/TGStickerProvider/tree/325913a3dc76369d9f207826ea7d750474f37446
 Our implementation retains the project's content-based conversion receipts and atomic
 per-file publication rather than adopting that fork's fixed staging directory/32-worker design.
+
+## FreeReflection compatibility update
+
+`com.github.tiann:FreeReflection:3.2.2` is directly pinned to replace the older Yuki transitive version without replacing its module initialization. Its MIT notice is included as `FreeReflection-3.2.2-LICENSE.txt`; the source tag resolves to `550e36e464539fe59fcc6e49c8f54bfbf376dbfe`. Source: https://github.com/tiann/FreeReflection/tree/3.2.2 . This addition does not resolve the separate FFmpeg binary-provenance qualifications above.

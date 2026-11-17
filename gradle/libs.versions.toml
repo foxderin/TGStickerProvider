@@ -8,6 +8,7 @@ recyclerview = "1.4.0"
 constraintlayout = "2.2.1"
 # Keep the Hook integration pinned; the video codec migration is tracked in docs/parallel-conversion.md.
 yuki = "1.2.0"
+free-reflection = "3.2.2"
 ffmpeg = "6.0.6"
 glide = "5.0.7"
 junit = "4.13.2"
@@ -25,6 +26,7 @@ appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat"
 recyclerview = { module = "androidx.recyclerview:recyclerview", version.ref = "recyclerview" }
 constraintlayout = { module = "androidx.constraintlayout:constraintlayout", version.ref = "constraintlayout" }
 xposed = { module = "de.robv.android.xposed:api", version = "82" }
+free-reflection = { module = "com.github.tiann:FreeReflection", version.ref = "free-reflection" }
 yuki-api = { module = "com.highcapable.yukihookapi:api", version.ref = "yuki" }
 yuki-ksp = { module = "com.highcapable.yukihookapi:ksp-xposed", version.ref = "yuki" }
 ffmpeg = { module = "io.github.maitrungduc1410:ffmpeg-kit-video", version.ref = "ffmpeg" }

@@ -61,6 +61,8 @@ dependencies {
     implementation(libs.constraintlayout)
     compileOnly(libs.xposed)
     implementation(libs.yuki.api)
+    // Preserve Yuki integration while fixing the old writable-Dex fallback.
+    implementation(libs.free.reflection)
     ksp(libs.yuki.ksp)
     implementation(libs.ffmpeg)
     implementation(libs.glide)
