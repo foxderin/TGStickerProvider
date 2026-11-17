@@ -3,7 +3,7 @@ package cc.microblock.TGStickerProvider.utils
 import java.io.File
 
 /** One directory scan per pack; keep it in sync with successful publication/deletion. */
-class StickerFileIndex(files: Array<File>) {
+class StickerFileIndex(files: Array<out File>) {
     private val byId = files.groupBy { stickerId(it) }
         .mapValues { (_, entries) -> entries.toMutableList() }.toMutableMap()
 

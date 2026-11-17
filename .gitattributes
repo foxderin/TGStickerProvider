@@ -1,0 +1,2 @@
+# Preserve upstream license text bytes and provenance hashes.
+app/src/main/assets/licenses/* -whitespace
