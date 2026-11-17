@@ -2,35 +2,23 @@ package cc.microblock.TGStickerProvider.utils
 
 import android.app.Application
 import android.content.Context
-import android.content.SharedPreferences
 import java.io.File
 
-
+/** Known storage adapters; an existing path is not a promise of client/schema compatibility. */
 object CachePathHelper {
-    @JvmStatic
-    fun getCachePath(context: Application?, packageName: String): String {
-        var defaultCachePath = "/storage/self/primary/Android/data/${packageName}/cache"
-        if (context != null && isNekoX(packageName)) {
-            val nekoXCachePath = getNekoXCachePath(context)
-            if (nekoXCachePath != null) {
-                defaultCachePath = "$nekoXCachePath/caches"
-            }
+    fun getCachePaths(context: Application): List<File> = buildList {
+        // Read the host's preferences through Context, including secondary Android users.
+        val configured = context.getSharedPreferences("nkmrcfg", Context.MODE_PRIVATE)
+            .getString("cache_path", null)
+        if (!configured.isNullOrBlank() && File(configured).isAbsolute && '\u0000' !in configured) {
+            add(File(configured, "caches"))
         }
-        return defaultCachePath
-    }
+        context.externalCacheDirs.filterNotNull().forEach { add(it) }
+        add(context.cacheDir)
+    }.distinctBy { it.absolutePath }
 
     @JvmStatic
-    fun isNekoX(packageName: String): Boolean {
-        return File("/data/data/${packageName}/shared_prefs/nkmrcfg.xml").exists()
-    }
-
-    @JvmStatic
-    fun getNekoXCachePath(context: Context): String? {
-        val preferences: SharedPreferences =
-            context.getSharedPreferences(
-                "nkmrcfg",
-                Context.MODE_PRIVATE
-            )
-        return preferences.getString("cache_path", null)
-    }
+    fun getCachePath(context: Application?, packageName: String): String =
+        context?.let { getCachePaths(it).firstOrNull()?.absolutePath }
+            ?: "/storage/self/primary/Android/data/$packageName/cache"
 }
