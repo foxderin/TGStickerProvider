@@ -162,7 +162,18 @@ class RecyclerAdapterStickerList(private val act: MainActivity) :
                     pd.show()
                     pd.setCancelable(false)
                     Thread {
-                        BoundedStickerWork.withStorageLock { action() }
+                        try {
+                            BoundedStickerWork.withStorageLock { action() }
+                        } catch (error: Exception) {
+                            YLog.error("Delete failed", error)
+                            act.runOnUiThread {
+                                pd.dismiss()
+                                if (!act.isFinishing && !act.isDestroyed) MaterialAlertDialogBuilder(act)
+                                    .setTitle("删除失败").setMessage(error.message ?: "请稍后重试")
+                                    .setPositiveButton("确定", null).show()
+                            }
+                            return@Thread
+                        }
                         act.runOnUiThread {
                             pd.setCancelable(true)
                             pd.setMessage("正在更新列表")
@@ -180,8 +191,16 @@ class RecyclerAdapterStickerList(private val act: MainActivity) :
                 message = "你将删除已缓存的表情包集 ${s.name}，这不会影响已同步的表情包，是否继续？",
                 icon = android.R.drawable.ic_menu_delete,
             ) {
-                File("$destDataPath/tgSync_${s.id}").deleteRecursively()
-                File("$stickerDataPath/${s.hash}").delete()
+                HookExportStore.withLock(File(tgspDataPath)) {
+                    check(File("$destDataPath/tgSync_${s.id}").let { !it.exists() || it.deleteRecursively() }) {
+                        "无法删除导出缓存"
+                    }
+                    // Explicit deletion includes legacy metadata shadowed by the stable record.
+                    File(stickerDataPath).listFiles().orEmpty().filter {
+                        it.isFile && it.name.endsWith(".stickerData.txt.jpg") &&
+                            runCatching { it.useLines { lines -> lines.firstOrNull() == s.id } }.getOrDefault(false)
+                    }.forEach { check(it.delete()) { "无法删除元数据 ${it.name}" } }
+                }
             }
         }
 
@@ -405,9 +424,22 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
                         setCancelable(false)
                     }
                     thread(true) {
-                        BoundedStickerWork.withStorageLock { File(exposedPath).deleteRecursively() }
-                        this.stickerList.postValue(listOf())
-                        pd.dismiss()
+                        try {
+                            BoundedStickerWork.withStorageLock {
+                                HookExportStore.withLock(File(tgspDataPath)) {
+                                    HookExportStore.clearDirectoryPreservingLock(File(exposedPath))
+                                }
+                            }
+                            this.stickerList.postValue(listOf())
+                        } catch (error: Exception) {
+                            YLog.error("Clear export cache failed", error)
+                            updateStickerList()
+                            runOnUiThread {
+                                if (!isFinishing && !isDestroyed) MaterialAlertDialogBuilder(this)
+                                    .setTitle("清除失败").setMessage(error.message ?: "请稍后重试")
+                                    .setPositiveButton("确定", null).show()
+                            }
+                        } finally { pd.dismiss() }
                     }
                 }
                 .setNegativeButton("算了", null).show()
@@ -567,13 +599,19 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
 
         val stickerList = mutableListOf<StickerInfo>()
 
-        for (file in File(stickerDataPath).listFiles().orEmpty()) {
+        // Stable pack metadata takes precedence over retained legacy hash-named snapshots.
+        // No destructive migration: old clients may still write them; deduplicate by export directory.
+        val metadataFiles = File(stickerDataPath).listFiles().orEmpty().filter { it.isFile }
+            .sortedWith(compareByDescending<File> { it.name.startsWith("pack_") }
+                .thenByDescending { it.lastModified() }.thenBy { it.name })
+        for (file in metadataFiles) {
             try {
                 val hash = file.name
                 if (!file.name.endsWith(".stickerData.txt.jpg")) continue
                 val lines = File(file.absolutePath).readLines()
                 val id = lines[0]
-                if (id in ignoreIds) continue
+                require(id.matches(Regex("[A-Za-z0-9_]+"))) { "Invalid sticker directory name" }
+                if (id in ignoreIds || stickerList.any { it.id == id }) continue
                 val name = lines[1]
                 val allSize = lines[2].toInt()
                 val type = if(lines.size > 3) lines[3] else "unknown"
@@ -583,15 +621,20 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
                 val remoteState = StickerState(0, 0, 0)
                 val syncedState = StickerState(0, 0, 0)
 
-                File("$destDataPath/tgSync_$id").listFiles()?.forEach {
+                val remoteIds = mutableSetOf<String>()
+                File("$destDataPath/tgSync_$id").listFiles()?.filter {
+                    it.isFile && it.extension.lowercase() in setOf("webp", "webm")
+                }?.forEach {
                     if (it.name.endsWith("_low.webp")) {
                         remoteState.lowQuality++
                     } else if (it.name.endsWith("_high.webp") || it.name.endsWith("_high.webm")) {
                         remoteState.highQuality++
                     }
 
-                    remoteState.all++
+                    remoteIds += StickerFileIndex.stickerId(it)
                 }
+
+                remoteState.all = remoteIds.size
 
                 File("$realDataPath/tgSync_${id}").listFiles()?.filter {
                     it.isFile && it.extension.lowercase() in setOf("png", "gif", "webp")
@@ -605,7 +648,9 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
                     syncedState.all++
                 }
 
-                val files = File("$destDataPath/tgSync_${id}").listFiles()?: emptyArray();
+                val files = File("$destDataPath/tgSync_${id}").listFiles().orEmpty().filter {
+                    it.isFile && it.extension.lowercase() in setOf("webp", "webm")
+                }
                 val preview = if (files.isNotEmpty()) {
                     val it = files[0]
                     if (it.extension == "webp") {
