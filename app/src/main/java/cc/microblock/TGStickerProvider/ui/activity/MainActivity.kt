@@ -4,6 +4,7 @@ package cc.microblock.TGStickerProvider.ui.activity
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import android.annotation.SuppressLint
@@ -12,6 +13,7 @@ import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
 import android.view.LayoutInflater
@@ -23,6 +25,8 @@ import android.widget.Toast
 import android.widget.VideoView
 import androidx.cardview.widget.CardView
 import androidx.core.view.isVisible
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.widget.doOnTextChanged
 import androidx.lifecycle.MutableLiveData
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -236,6 +240,44 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
 
     override fun inflateBinding(inflater: LayoutInflater) = ActivityMainBinding.inflate(inflater)
 
+    private companion object {
+        const val STATE_MANAGER_VISIBLE = "main.manager_visible"
+        const val STATE_FILTER = "main.filter"
+        const val STATE_PENDING_ONLY = "main.pending_only"
+        const val STATE_HIGH_QUALITY_GIF = "main.high_quality_gif"
+    }
+
+    private val managerBackCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            binding.searchBar.clearFocus()
+            WindowCompat.getInsetsController(window, binding.root)
+                .hide(WindowInsetsCompat.Type.ime())
+            showStickerManager(false)
+        }
+    }
+
+    private fun showStickerManager(show: Boolean) {
+        binding.tips.isVisible = !show
+        binding.manage.isVisible = show
+        // At the start page, defer to the system back-to-home behavior/animation.
+        managerBackCallback.isEnabled = show
+    }
+
+    private fun hasStorageAccess(): Boolean = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        Environment.isExternalStorageManager()
+    } else {
+        ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+            PackageManager.PERMISSION_GRANTED
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean(STATE_MANAGER_VISIBLE, binding.manage.isVisible)
+        outState.putString(STATE_FILTER, filter)
+        outState.putBoolean(STATE_PENDING_ONLY, requiresSyncOnly)
+        outState.putBoolean(STATE_HIGH_QUALITY_GIF, useHighQualityGif)
+        super.onSaveInstanceState(outState)
+    }
+
     private val storageSettings = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
             onGainedPermission()
@@ -373,23 +415,25 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
     }
 
     @SuppressLint("NotifyDataSetChanged")
-    override fun onCreate() {
+    override fun onBindingCreated(savedInstanceState: Bundle?) {
         refreshModuleStatus()
-        requestPermission()
+        filter = savedInstanceState?.getString(STATE_FILTER).orEmpty()
+        requiresSyncOnly = savedInstanceState?.getBoolean(STATE_PENDING_ONLY) ?: false
+        useHighQualityGif = savedInstanceState?.getBoolean(STATE_HIGH_QUALITY_GIF) ?: false
+        // Restore model and controls before attaching listeners. Framework view restoration
+        // may run later too; both paths must agree on the selected options.
+        binding.searchBar.setText(filter)
+        binding.requiresSyncOnlySwitch.isChecked = requiresSyncOnly
+        binding.gifQualitySwitch.isChecked = useHighQualityGif
+        onBackPressedDispatcher.addCallback(this, managerBackCallback)
+        showStickerManager(savedInstanceState?.getBoolean(STATE_MANAGER_VISIBLE) == true && hasStorageAccess())
         binding.mainTextVersion.text = getString(R.string.module_version, BuildConfig.VERSION_NAME)
         binding.button2.setOnClickListener {
-            val hasStorageAccess = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                Environment.isExternalStorageManager()
-            } else {
-                ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
-                    PackageManager.PERMISSION_GRANTED
-            }
-            if (!hasStorageAccess) {
+            if (!hasStorageAccess()) {
                 requestPermission()
                 return@setOnClickListener
             }
-            binding.tips.visibility = View.GONE
-            binding.manage.visibility = View.VISIBLE
+            showStickerManager(true)
         }
         binding.requiresSyncOnlySwitch.setOnCheckedChangeListener { _, isChecked ->
             requiresSyncOnly = isChecked
@@ -548,6 +592,13 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
                 refreshFreshness(list)
                 onFilterChanged(list)
             }
+        }
+        if (savedInstanceState == null) {
+            requestPermission()
+        } else if (hasStorageAccess()) {
+            // A recreated Activity must not launch a second permission/settings flow.
+            // Explicit retry remains available from the start-page button.
+            thread { updateStickerList() }
         }
     }
 

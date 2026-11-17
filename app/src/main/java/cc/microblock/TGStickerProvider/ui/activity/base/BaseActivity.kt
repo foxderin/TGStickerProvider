@@ -42,9 +42,9 @@ abstract class BaseActivity<VB : ViewBinding> : AppCompatActivity() {
             navigationBarColor = Color.TRANSPARENT
             navigationBarDividerColor = Color.TRANSPARENT
         }
-        onCreate()
+        onBindingCreated(savedInstanceState)
     }
 
     protected abstract fun inflateBinding(inflater: LayoutInflater): VB
-    abstract fun onCreate()
+    protected abstract fun onBindingCreated(savedInstanceState: Bundle?)
 }
