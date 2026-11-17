@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.ksp)
 }
 
@@ -35,6 +34,8 @@ android {
         buildConfig = true
         viewBinding = true
     }
+    // Load bundled native libraries directly from the read-only APK, aligned by modern AGP.
+    packaging { jniLibs.useLegacyPackaging = false }
     lint { checkReleaseBuilds = false }
     // TODO Please visit https://highcapable.github.io/YukiHookAPI/en/api/special-features/host-inject
     // TODO 请参考 https://highcapable.github.io/YukiHookAPI/zh-cn/api/special-features/host-inject

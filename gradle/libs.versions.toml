@@ -1,7 +1,6 @@
 [versions]
-agp = "8.13.2"
-kotlin = "2.2.21"
-ksp = "2.2.21-2.0.5"
+agp = "9.1.1"
+ksp = "2.3.10"
 material = "1.14.0"
 core = "1.17.0"
 appcompat = "1.7.1"
@@ -17,7 +16,6 @@ espresso = "3.7.0"
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 
 [libraries]
