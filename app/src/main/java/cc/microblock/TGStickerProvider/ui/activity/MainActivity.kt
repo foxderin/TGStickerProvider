@@ -28,6 +28,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import cc.microblock.TGStickerProvider.*
 import cc.microblock.TGStickerProvider.databinding.ActivityMainBinding
+import cc.microblock.TGStickerProvider.utils.StickerConversionCache
 import cc.microblock.TGStickerProvider.ui.activity.base.BaseActivity
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.bumptech.glide.Glide
@@ -241,6 +242,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
     public fun syncStickerPack(info: StickerInfo, finished: () -> Unit, error: (Int, String) -> Unit) {
         val act = this
         val s = info
+        val highQualityGif = useHighQualityGif
         act.runOnUiThread {
             val pd = ProgressDialog(act).apply {
                 setMessage("正在同步")
@@ -259,6 +261,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
                 }
 
                 val remoteFileList = File(remoteFolder).listFiles() ?: emptyArray()
+                val conversionCache = StickerConversionCache(File(filesDir, "sticker-conversions"))
 
                 for ((index, remoteFile) in remoteFileList.withIndex()) {
                     val nameWithoutExt = remoteFile.name.substringBefore(".")
@@ -273,15 +276,36 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
                         "webp"->{
                             try {
                                 val outPathPng = "${syncedFolder}/${nameWithoutExt}.png"
-                                val decoder = ImageDecoder.createSource(remoteFile)
-                                val bitmap = ImageDecoder.decodeBitmap(decoder)
                                 val out = File(outPathPng)
-                                out.outputStream().buffered().use {
-                                    bitmap.compress(
-                                        android.graphics.Bitmap.CompressFormat.PNG,
-                                        100,
-                                        it
-                                    )
+                                val sourceHash = conversionCache.fingerprint(remoteFile)
+                                val recipe = "png-v1-android-${Build.VERSION.SDK_INT}-${Build.FINGERPRINT}"
+                                if (!conversionCache.isFresh(remoteFile, sourceHash, out, recipe)) {
+                                    val tempOutput = File.createTempFile(".png-", ".tmp", File(syncedFolder))
+                                    try {
+                                        val decoder = ImageDecoder.createSource(remoteFile)
+                                        val bitmap = ImageDecoder.decodeBitmap(decoder)
+                                        try {
+                                            tempOutput.outputStream().buffered().use {
+                                                check(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)) {
+                                                    "PNG encoding failed"
+                                                }
+                                            }
+                                        } finally {
+                                            bitmap.recycle()
+                                        }
+                                        check(tempOutput.length() > 0L) { "PNG encoding produced an empty file" }
+                                        check(conversionCache.fingerprint(remoteFile) == sourceHash) {
+                                            "Source changed during conversion; retry synchronization"
+                                        }
+                                        java.nio.file.Files.move(
+                                            tempOutput.toPath(), out.toPath(),
+                                            java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                                            java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                                        )
+                                        conversionCache.record(remoteFile, sourceHash, out, recipe)
+                                    } finally {
+                                        tempOutput.delete()
+                                    }
                                 }
 
                                 for (file in existing) {
@@ -299,12 +323,15 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
                         "webm"->{
                             // Publish only completed GIFs; failed conversions must remain retryable.
                             val outFile = File(syncedFolder, "${nameWithoutExt}.gif")
-                            if (!outFile.isFile || outFile.length() == 0L) {
-                                var tempFile: File? = null
-                                try {
+                            var tempFile: File? = null
+                            try {
+                                val sourceHash = conversionCache.fingerprint(remoteFile)
+                                val recipe = "gif-v1-ffmpeg-kit-min-6.0.1-" +
+                                    if (highQualityGif) "palette" else "width320-fps10"
+                                if (!conversionCache.isFresh(remoteFile, sourceHash, outFile, recipe)) {
                                     val tempOutput = File.createTempFile(".gif-", ".tmp", File(syncedFolder))
                                     tempFile = tempOutput
-                                    val arguments = if (act.useHighQualityGif) {
+                                    val arguments = if (highQualityGif) {
                                         arrayOf("-y", "-i", remoteFile.absolutePath, "-lavfi",
                                             "split[v],palettegen,[v]paletteuse", "-f", "gif", tempOutput.absolutePath)
                                     } else {
@@ -320,19 +347,23 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
                                     check(tempOutput.isFile && tempOutput.length() > 0L) {
                                         "FFmpegKit produced an empty GIF"
                                     }
+                                    check(conversionCache.fingerprint(remoteFile) == sourceHash) {
+                                        "Source changed during conversion; retry synchronization"
+                                    }
                                     java.nio.file.Files.move(
                                         tempOutput.toPath(), outFile.toPath(),
                                         java.nio.file.StandardCopyOption.ATOMIC_MOVE,
                                         java.nio.file.StandardCopyOption.REPLACE_EXISTING
                                     )
+                                    conversionCache.record(remoteFile, sourceHash, outFile, recipe)
                                     YLog.info("FFmpegKit: ${session.command} finished successfully")
-                                } catch (e: Exception) {
-                                    YLog.error("Error while converting webm to gif", e)
-                                    failReasons += "$id: Error while converting webm to gif: ${e.message}\n"
-                                    failCount++
-                                } finally {
-                                    tempFile?.delete()
                                 }
+                            } catch (e: Exception) {
+                                YLog.error("Error while converting webm to gif", e)
+                                failReasons += "$id: Error while converting webm to gif: ${e.message}\n"
+                                failCount++
+                            } finally {
+                                tempFile?.delete()
                             }
                         }
                     }
